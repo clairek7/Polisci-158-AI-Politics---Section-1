@@ -1,1 +1,563 @@
-file:///Users/clairekim/Documents/Polisci-158-AI-Politics---Section-1/rl-game/index.html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get Out the Vote</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --panel: #ffffff; --text: #1d1d1f; --muted: #666;
+    --line: #d9d6cc; --cell: #efece4; --accent: #2a62c9;
+    --good: #1f8a4c; --bad: #c0392b; --chart2: #d9822b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181b; --panel: #222328; --text: #ececec; --muted: #9a9a9a;
+      --line: #3a3b42; --cell: #2c2d33; --accent: #6b9cff;
+      --good: #4cc27f; --bad: #ff6b5b; --chart2: #f0a050;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  h2 { margin: 0 0 10px; font-size: 18px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .layout { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+  @media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+
+  /* The 5x5 board */
+  #board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; width: 100%; max-width: 310px; aspect-ratio: 1; }
+  .cell { background: var(--cell); border-radius: 6px; position: relative; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .cell .tag { position: absolute; top: 2px; left: 4px; font-size: 11px; font-weight: 600; }
+  .house.supporter { outline: 2px solid var(--good); }
+  .house.opponent { outline: 2px solid var(--bad); }
+  .house.voted { background: color-mix(in srgb, var(--good) 25%, var(--cell)); }
+  .walker { position: absolute; font-size: 22px; bottom: 0; right: 2px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0 8px; text-align: center; }
+  .stats div { background: var(--cell); border-radius: 6px; padding: 6px 2px; }
+  .stats b { display: block; font-size: 20px; }
+  #message { min-height: 2.9em; font-size: 14px; }
+
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--cell); color: var(--text); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pad { display: grid; grid-template-columns: repeat(3, 44px); gap: 4px; justify-content: start; margin-top: 6px; }
+  .pad button { padding: 6px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 5px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+  td:last-child { text-align: right; }
+  select { font: inherit; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  input[type=number] { width: 80px; font: inherit; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  code { font-size: 13px; }
+
+  #chart { width: 100%; height: 280px; display: block; }
+  .legend { display: flex; gap: 16px; font-size: 13px; margin-top: 6px; flex-wrap: wrap; }
+  .swatch { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Get Out the Vote</h1>
+  <p class="muted">You're a canvasser with 25 moves before the polls close. Houses <b>A</b> and <b>B</b> are supporters: knock on their door (walk onto the house) and they'll go vote. House <b>C</b> is not a supporter. Then let a Q-learning agent learn the same job.</p>
+
+  <div class="layout">
+    <div>
+      <section>
+        <h2 id="boardTitle">Your game</h2>
+        <div id="board"></div>
+        <div class="stats">
+          <div><b id="score">0</b>score</div>
+          <div><b id="moves">25</b>moves left</div>
+          <div><b id="voted">0/2</b>voted</div>
+        </div>
+        <p id="message"></p>
+        <div class="row">
+          <div class="pad">
+            <span></span><button data-dir="0" aria-label="Up">↑</button><span></span>
+            <button data-dir="3" aria-label="Left">←</button><button data-dir="1" aria-label="Down">↓</button><button data-dir="2" aria-label="Right">→</button>
+          </div>
+          <button id="newGame">New game</button>
+        </div>
+        <p class="muted" style="margin-top:8px;font-size:13px">Arrow keys work too.</p>
+      </section>
+    </div>
+
+    <div>
+      <section>
+        <h2>Rewards: what the agent is told to want</h2>
+        <p class="muted">These are the numbers <code>reward()</code> hands out on each move. Your score uses them too.</p>
+        <div class="row" style="margin-bottom:4px">
+          <label for="rewardPreset"><b>Reward version</b></label>
+          <select id="rewardPreset"></select>
+        </div>
+        <p id="presetNote" class="muted" style="font-size:13px"></p>
+        <table id="rewardTable"></table>
+        <p class="muted" style="margin:8px 0 0;font-size:13px">Changing a reward doesn't erase what the agent already learned. Press <b>Reset agent</b> to start it fresh.</p>
+      </section>
+
+      <section>
+        <h2>Q-learning agent</h2>
+        <p class="muted">ε = 0.2 (explores at random 20% of the time while training), learning rate = 0.2, discount = 0.95. Random seed 42, so the same clicks give the same results.</p>
+        <div class="row">
+          <button id="train100" class="primary">Train 100 games</button>
+          <button id="train1000" class="primary">Train 1,000 games</button>
+          <button id="resetAgent">Reset agent</button>
+          <button id="watch">Watch it play</button>
+        </div>
+        <p id="agentInfo" style="margin-top:10px"></p>
+      </section>
+
+      <section>
+        <h2>Learning curve</h2>
+        <canvas id="chart"></canvas>
+        <div class="legend">
+          <span><span class="swatch" style="background:var(--accent)"></span>Average reward per game (left axis)</span>
+          <span><span class="swatch" style="background:var(--chart2)"></span>Games where both supporters voted (right axis)</span>
+        </div>
+        <p class="muted" style="margin-top:6px;font-size:13px">Each point is a block of 50 training games, including the 20% random exploring moves.</p>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+// =====================================================================
+// REWARDS: the points for each move. Edit them on the page.
+// =====================================================================
+const R = {
+  move:      -0.1, // every move costs a little: time is short
+  wall:      -0.5, // bumping into the edge of the map
+  anyKnock:   0,   // any knock on any door, even a repeat (try making it positive!)
+  supporterContact: 0, // each knock on a supporter's door, even after they voted
+  turnout:   10,   // a supporter goes to vote (counts only once per house)
+  wrongDoor: -5,   // knocking on the non-supporter may fire them up to vote against you
+};
+
+// Points for one move. `e` describes what happened on that move.
+function reward(e) {
+  let r = R.move;                     // each move uses up time
+  if (e.hitWall)   r += R.wall;       // tried to walk off the map
+  if (e.knocked)   r += R.anyKnock;   // knocked on some door
+  if (e.supporterKnock) r += R.supporterContact; // talked to a supporter (repeats count)
+  if (e.turnedOut) r += R.turnout;    // a supporter just turned out
+  if (e.wrongDoor) r += R.wrongDoor;  // knocked on the non-supporter
+  return r;
+}
+
+// Reward versions you can switch between on the page. "Original" is the default.
+const ORIGINAL = { ...R };
+const PRESETS = {
+  original: {
+    label: 'Original',
+    note: 'Points for turning out supporters, minus time and mistakes.',
+    values: ORIGINAL,
+  },
+  contacts: {
+    label: 'Count supporter contacts',
+    note: 'Adds +2 for every knock on a supporter\'s door, like a campaign tracking ' +
+          'contacts with its base. Repeat visits count too. Reset and retrain to see what the agent does.',
+    values: { ...ORIGINAL, supporterContact: 2 },
+  },
+};
+
+// Labels for the reward table on the page.
+const REWARD_LABELS = {
+  move: 'Each move (time cost)',
+  wall: 'Bump into the edge',
+  anyKnock: 'Knock on any door (even a repeat)',
+  supporterContact: 'Contact a supporter (each knock, even a repeat)',
+  turnout: 'Supporter turns out to vote',
+  wrongDoor: 'Knock on the non-supporter',
+};
+
+// =====================================================================
+// THE GAME
+// =====================================================================
+const SIZE = 5;
+const MAX_MOVES = 25;
+const START = { x: 0, y: 0 };
+const HOUSES = [
+  { name: 'A', x: 4, y: 1, supporter: true,  id: 0 },
+  { name: 'B', x: 1, y: 4, supporter: true,  id: 1 },
+  { name: 'C', x: 2, y: 2, supporter: false },
+];
+const DIRS = [[0, -1], [0, 1], [1, 0], [-1, 0]]; // up, down, right, left
+const DIR_NAMES = ['up', 'down', 'right', 'left'];
+
+// State = square (25) x has A voted (2) x has B voted (2) = 100 states.
+// (Moves left is shown to the player but is not part of the agent's state.)
+const NUM_STATES = SIZE * SIZE * 4;
+const NUM_ACTIONS = 4;
+
+function stateIndex(s) {
+  return (s.y * SIZE + s.x) * 4 + (s.voted[0] ? 1 : 0) + (s.voted[1] ? 2 : 0);
+}
+
+function newGame() {
+  return { x: START.x, y: START.y, voted: [false, false], movesLeft: MAX_MOVES };
+}
+
+function houseAt(x, y) {
+  return HOUSES.find(h => h.x === x && h.y === y);
+}
+
+// Apply one move. Walking onto a house = knocking on its door.
+function step(s, action) {
+  const [dx, dy] = DIRS[action];
+  const e = { hitWall: false, knocked: false, supporterKnock: false, turnedOut: false, wrongDoor: false, house: null };
+  let x = s.x + dx, y = s.y + dy;
+  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE) { x = s.x; y = s.y; e.hitWall = true; }
+
+  const voted = s.voted.slice();
+  const h = e.hitWall ? null : houseAt(x, y);
+  if (h) {
+    e.knocked = true;
+    e.house = h;
+    if (!h.supporter) e.wrongDoor = true;
+    else {
+      e.supporterKnock = true;
+      if (!voted[h.id]) { voted[h.id] = true; e.turnedOut = true; }
+    }
+  }
+
+  const next = { x, y, voted, movesLeft: s.movesLeft - 1 };
+  const goal = voted[0] && voted[1];
+  return { next, e, r: reward(e), goal, done: goal || next.movesLeft === 0 };
+}
+
+// =====================================================================
+// SEEDED RANDOM NUMBERS (mulberry32): same seed, same results
+// =====================================================================
+const SEED = 42;
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// =====================================================================
+// Q-LEARNING AGENT
+// =====================================================================
+const EPSILON = 0.2; // chance of a random move while training
+const ALPHA = 0.2;   // learning rate: how far each update moves a Q-value
+const GAMMA = 0.95;  // discount: how much future points count vs. points now
+
+let Q;          // Q[state][action] = expected future points
+let trainRng;   // random numbers used for training
+let history;    // one entry per training game: { total, goal }
+
+function resetAgent() {
+  Q = Array.from({ length: NUM_STATES }, () => new Array(NUM_ACTIONS).fill(0));
+  trainRng = makeRng(SEED);
+  history = [];
+}
+
+// Best action in a state; ties broken at random.
+function bestAction(si, rng) {
+  const q = Q[si];
+  const max = Math.max(...q);
+  const ties = [];
+  for (let a = 0; a < NUM_ACTIONS; a++) if (q[a] === max) ties.push(a);
+  return ties[Math.floor(rng() * ties.length)];
+}
+
+// Epsilon-greedy: usually the best action, sometimes a random one.
+function chooseAction(si, rng, epsilon) {
+  if (rng() < epsilon) return Math.floor(rng() * NUM_ACTIONS);
+  return bestAction(si, rng);
+}
+
+// Play one training game and update Q after every move.
+function trainOneGame() {
+  let s = newGame(), total = 0, res;
+  do {
+    const si = stateIndex(s);
+    const a = chooseAction(si, trainRng, EPSILON);
+    res = step(s, a);
+    // Target = points now + discounted best future value.
+    // If both supporters voted, nothing is left to earn. If time just ran out,
+    // we still look ahead, because the clock is not part of the state.
+    const future = res.goal ? 0 : Math.max(...Q[stateIndex(res.next)]);
+    Q[si][a] += ALPHA * (res.r + GAMMA * future - Q[si][a]);
+    total += res.r;
+    s = res.next;
+  } while (!res.done);
+  history.push({ total, goal: res.goal });
+}
+
+function train(n) {
+  stopAnimation();
+  for (let i = 0; i < n; i++) trainOneGame();
+  updateAgentInfo();
+  drawChart();
+}
+
+// =====================================================================
+// PAGE: board, human play, and "Watch it play"
+// =====================================================================
+const $ = id => document.getElementById(id);
+let game = newGame();
+let score = 0;
+let mode = 'human';     // 'human' or 'agent' (while watching)
+let animTimer = null;
+
+function render() {
+  const board = $('board');
+  board.innerHTML = '';
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      const h = houseAt(x, y);
+      if (h) {
+        const voted = h.supporter && game.voted[h.id];
+        cell.classList.add('house', h.supporter ? 'supporter' : 'opponent');
+        if (voted) cell.classList.add('voted');
+        cell.innerHTML = `<span class="tag">${h.name}</span>${voted ? '🗳️' : '🏠'}`;
+        cell.title = h.supporter ? `House ${h.name}: supporter` : `House ${h.name}: not a supporter`;
+      }
+      if (x === game.x && y === game.y) {
+        cell.insertAdjacentHTML('beforeend', '<span class="walker">🚶</span>');
+      }
+      board.appendChild(cell);
+    }
+  }
+  $('score').textContent = fmt(score);
+  $('moves').textContent = game.movesLeft;
+  $('voted').textContent = `${game.voted.filter(v => v).length}/2`;
+  $('boardTitle').textContent = mode === 'agent' ? 'Agent playing (no exploring)' : 'Your game';
+  const playing = mode === 'human' && !isOver();
+  document.querySelectorAll('.pad button').forEach(b => (b.disabled = !playing));
+}
+
+function isOver() {
+  return game.movesLeft === 0 || (game.voted[0] && game.voted[1]);
+}
+
+function fmt(n) {
+  return (Math.round(n * 10) / 10).toString();
+}
+
+// Describe one move in words, e.g. "Moved right. House A turns out! +9.9"
+function describe(action, res, who) {
+  const e = res.e;
+  let text = `${who} moved ${DIR_NAMES[action]}.`;
+  if (e.hitWall) text = `${who} bumped into the edge.`;
+  if (e.turnedOut) text += ` House ${e.house.name} goes to vote!`;
+  else if (e.wrongDoor) text += ` Knocked on house ${e.house.name}, who isn't a supporter.`;
+  else if (e.knocked) text += ` House ${e.house.name} already voted.`;
+  text += ` (${res.r >= 0 ? '+' : ''}${fmt(res.r)})`;
+  if (res.goal) text += ' Both supporters voted. Goal reached!';
+  else if (res.done) text += ' The polls are closed.';
+  return text;
+}
+
+function humanMove(action) {
+  if (mode !== 'human' || isOver()) return;
+  const res = step(game, action);
+  game = res.next;
+  score += res.r;
+  $('message').textContent = describe(action, res, 'You');
+  render();
+}
+
+function startHumanGame() {
+  stopAnimation();
+  game = newGame();
+  score = 0;
+  $('message').textContent = 'Find the supporters before the polls close.';
+  render();
+}
+
+// Animate one game with no exploring (always the best known move).
+// It uses its own seeded random numbers for ties, so watching never changes training.
+function watchAgent() {
+  stopAnimation();
+  mode = 'agent';
+  game = newGame();
+  score = 0;
+  const rng = makeRng(SEED + 1);
+  $('message').textContent = 'The agent always picks its highest Q-value move.';
+  render();
+  animTimer = setInterval(() => {
+    const a = bestAction(stateIndex(game), rng);
+    const res = step(game, a);
+    game = res.next;
+    score += res.r;
+    $('message').textContent = describe(a, res, 'The agent');
+    render();
+    if (res.done) { clearInterval(animTimer); animTimer = null; }
+  }, 250);
+}
+
+function stopAnimation() {
+  if (animTimer) { clearInterval(animTimer); animTimer = null; }
+  if (mode === 'agent') { mode = 'human'; game = newGame(); score = 0; $('message').textContent = ''; render(); }
+}
+
+function updateAgentInfo() {
+  const n = history.length;
+  if (!n) { $('agentInfo').textContent = 'Not trained yet: all Q-values are 0, so every move looks equally good.'; return; }
+  const last = history.slice(-50);
+  const share = Math.round(100 * last.filter(g => g.goal).length / last.length);
+  const avg = last.reduce((t, g) => t + g.total, 0) / last.length;
+  $('agentInfo').textContent =
+    `Trained on ${n.toLocaleString()} games. Last ${last.length}: average reward ${fmt(avg)}, both supporters voted in ${share}%.`;
+}
+
+// Reward table with an input for each number, plus the version switch.
+function buildRewardTable() {
+  const table = $('rewardTable');
+  for (const key of Object.keys(R)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><label for="r_${key}">${REWARD_LABELS[key]}</label></td>
+      <td><input type="number" step="0.1" id="r_${key}" value="${R[key]}"></td>`;
+    table.appendChild(tr);
+    tr.querySelector('input').addEventListener('input', ev => {
+      const v = parseFloat(ev.target.value);
+      if (!isNaN(v)) R[key] = v;
+      showPreset();
+    });
+  }
+
+  const select = $('rewardPreset');
+  for (const [name, p] of Object.entries(PRESETS)) select.add(new Option(p.label, name));
+  select.add(new Option('Custom (edited by hand)', 'custom'));
+  select.options[select.options.length - 1].disabled = true;
+  select.addEventListener('change', () => applyPreset(select.value));
+  applyPreset('original');
+}
+
+// Load a reward version into R and the inputs.
+function applyPreset(name) {
+  Object.assign(R, PRESETS[name].values);
+  for (const key of Object.keys(R)) $('r_' + key).value = R[key];
+  showPreset();
+}
+
+// Show which version the current numbers match ("Custom" if none).
+function showPreset() {
+  const match = Object.keys(PRESETS).find(name =>
+    Object.keys(R).every(k => R[k] === PRESETS[name].values[k]));
+  $('rewardPreset').value = match || 'custom';
+  $('presetNote').textContent = match ? PRESETS[match].note : 'You changed the numbers by hand.';
+}
+
+// =====================================================================
+// LEARNING CURVE (plain canvas)
+// =====================================================================
+const BLOCK = 50;
+
+function drawChart() {
+  const canvas = $('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const css = getComputedStyle(document.documentElement);
+  const col = name => css.getPropertyValue(name).trim();
+  ctx.font = '12px system-ui, sans-serif';
+
+  // Group training games into blocks of 50.
+  const points = [];
+  for (let i = 0; i + BLOCK <= history.length; i += BLOCK) {
+    const block = history.slice(i, i + BLOCK);
+    points.push({
+      games: i + BLOCK,
+      avg: block.reduce((t, g) => t + g.total, 0) / BLOCK,
+      goal: block.filter(g => g.goal).length / BLOCK,
+    });
+  }
+
+  const pad = { l: 44, r: 44, t: 10, b: 30 };
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+
+  if (!points.length) {
+    ctx.fillStyle = col('--muted');
+    ctx.textAlign = 'center';
+    ctx.fillText('Train at least 50 games to see the curve.', W / 2, H / 2);
+    return;
+  }
+
+  // Left axis range (rewards), always including 0.
+  let lo = Math.min(0, ...points.map(p => p.avg));
+  let hi = Math.max(0, ...points.map(p => p.avg));
+  if (hi - lo < 1) hi = lo + 1;
+  const span = hi - lo; lo -= span * 0.05; hi += span * 0.05;
+  const maxGames = points[points.length - 1].games;
+
+  const xOf = g => pad.l + (points.length === 1 ? pw / 2 : ((g - BLOCK) / (maxGames - BLOCK)) * pw);
+  const yLeft = v => pad.t + (1 - (v - lo) / (hi - lo)) * ph;
+  const yRight = f => pad.t + (1 - f) * ph;
+
+  // Grid lines and axis labels.
+  ctx.strokeStyle = col('--line'); ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (i / 4) * ph;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + pw, y); ctx.stroke();
+    ctx.fillStyle = col('--accent'); ctx.textAlign = 'right';
+    ctx.fillText(fmt(hi - (i / 4) * (hi - lo)), pad.l - 6, y + 4);
+    ctx.fillStyle = col('--chart2'); ctx.textAlign = 'left';
+    ctx.fillText(`${100 - i * 25}%`, pad.l + pw + 6, y + 4);
+  }
+  ctx.fillStyle = col('--muted'); ctx.textAlign = 'center';
+  ctx.fillText('0', pad.l, H - 10);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${maxGames.toLocaleString()} training games`, pad.l + pw, H - 10);
+
+  // The two lines.
+  function line(color, yFn) {
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath();
+    points.forEach((p, i) => (i ? ctx.lineTo(xOf(p.games), yFn(p)) : ctx.moveTo(xOf(p.games), yFn(p))));
+    ctx.stroke();
+    if (points.length <= 40) points.forEach(p => { ctx.beginPath(); ctx.arc(xOf(p.games), yFn(p), 2.5, 0, 7); ctx.fill(); });
+  }
+  line(col('--accent'), p => yLeft(p.avg));
+  line(col('--chart2'), p => yRight(p.goal));
+}
+
+// =====================================================================
+// WIRING
+// =====================================================================
+document.querySelectorAll('.pad button').forEach(b =>
+  b.addEventListener('click', () => humanMove(Number(b.dataset.dir))));
+document.addEventListener('keydown', ev => {
+  if (ev.target.tagName === 'INPUT') return;
+  const keys = { ArrowUp: 0, ArrowDown: 1, ArrowRight: 2, ArrowLeft: 3 };
+  if (ev.key in keys) { ev.preventDefault(); humanMove(keys[ev.key]); }
+});
+$('newGame').addEventListener('click', startHumanGame);
+$('train100').addEventListener('click', () => train(100));
+$('train1000').addEventListener('click', () => train(1000));
+$('resetAgent').addEventListener('click', () => { stopAnimation(); resetAgent(); updateAgentInfo(); drawChart(); });
+$('watch').addEventListener('click', watchAgent);
+window.addEventListener('resize', drawChart);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawChart);
+
+buildRewardTable();
+resetAgent();
+updateAgentInfo();
+startHumanGame();
+drawChart();
+</script>
+</body>
+</html>
